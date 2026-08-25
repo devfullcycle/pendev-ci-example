@@ -1,0 +1,117 @@
+name: Design diff
+
+# Não existe `pen diff`. A comparação é montada aqui: worktree da base, render
+# dos dois lados via `pen interactive` headless, e três camadas de diff textual.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      # só a fonte do design — mexer no DESIGN-SYSTEM.md não justifica render
+      - "design/pendev/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: design-diff-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PEN_FILE: design/pendev/youtube-channel.pen
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # >= 0.3.5 obrigatório: em 0.3.2 um .pen com fills de imagem relativos
+      # carrega VAZIO sem erro fatal. scripts/pen-export.sh checa e falha.
+      - name: Instalar pen.dev CLI
+        run: npm install -g @pen.dev/cli && pen version
+
+      # O .pen referencia ./assets/* relativamente, então a versão da base
+      # precisa da árvore inteira — um worktree, não um `git show` solto.
+      - name: Worktree da base
+        run: git worktree add --detach ../base "origin/${{ github.base_ref }}"
+
+      - name: Renderizar os dois lados
+        env:
+          PEN_CLI_KEY: ${{ secrets.PEN_CLI_KEY }}
+        run: |
+          ./scripts/pen-export.sh "../base/$PEN_FILE" /tmp/render/base 1
+          ./scripts/pen-export.sh "$PEN_FILE"         /tmp/render/head 1
+          mkdir -p /tmp/render/out
+          for f in /tmp/render/base/*.png; do cp "$f" "/tmp/render/out/base-$(basename "$f")"; done
+          for f in /tmp/render/head/*.png; do cp "$f" "/tmp/render/out/head-$(basename "$f")"; done
+
+      # Três camadas, da mais específica para a mais bruta. O diff do arquivo
+      # inteiro seria ruído de coordenada, por isso nenhuma delas é ele.
+      #
+      #   tokens     -> cor/escala trocada, token add/removido
+      #   inventário -> componente add/removido/renomeado
+      #   estrutura  -> mudança DENTRO de um componente (padding do Chip etc),
+      #                 que não aparece nas duas anteriores
+      #
+      # Composição das telas não entra: instanciada dá milhares de linhas.
+      # Mudança de tela se vê no PNG.
+      - name: Diff de tokens, inventário e estrutura
+        run: |
+          strip='walk(if type == "object" then del(.id, .x, .y) else . end)'
+          for side in base head; do
+            src="$PEN_FILE"; [ "$side" = base ] && src="../base/$PEN_FILE"
+            jq -S '.variables // {}' "$src" > "/tmp/render/$side.tokens.json"
+            jq -r '[.. | objects | select(.reusable == true) | .name] | sort | .[]' \
+              "$src" > "/tmp/render/$side.inventory.txt"
+            jq -S "[.. | objects | select(.reusable == true)] | sort_by(.name) | map($strip)" \
+              "$src" > "/tmp/render/$side.shape.json"
+          done
+
+          # Comentário de PR estoura em 65536 chars; cada seção tem teto próprio.
+          emit() {
+            echo "### $1"; echo
+            if diff -q "/tmp/render/base.$2" "/tmp/render/head.$2" >/dev/null; then
+              echo '_sem mudança_'
+            else
+              d=$(diff -u "/tmp/render/base.$2" "/tmp/render/head.$2" | tail -n +3)
+              n=$(printf '%s\n' "$d" | wc -l)
+              echo '```diff'
+              printf '%s\n' "$d" | head -120
+              echo '```'
+              [ "$n" -gt 120 ] && echo "_+$((n - 120)) linhas omitidas — veja o artefato._"
+            fi
+            echo
+          }
+          {
+            emit Tokens tokens.json
+            emit "Inventário de componentes" inventory.txt
+            emit "Estrutura dos componentes" shape.json
+          } > /tmp/render/summary.md
+          cp /tmp/render/*.json /tmp/render/*.txt /tmp/render/out/ 2>/dev/null || true
+          cat /tmp/render/summary.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: design-render-${{ github.event.pull_request.number }}
+          path: /tmp/render/out/*
+          if-no-files-found: error
+
+      - name: Comentar no PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "## Design vs \`${{ github.base_ref }}\`"
+            echo
+            cat /tmp/render/summary.md
+            echo "Renders antes/depois: [artefato do run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)"
+          } > /tmp/render/comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/render/comment.md

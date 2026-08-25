@@ -6,16 +6,31 @@ a tradução literal daria errado.
 
 ## 1. Como ler o design
 
-O `.pen` é criptografado — `Read` e `Grep` não funcionam nele. Só o MCP `pencil`
-abre, e **o arquivo precisa estar aberto no VS Code Insiders**; por caminho
-absoluto ele recusa. Na prática: para consultar o design, peça ao usuário que
-abra o `.pen` no editor.
+O `.pen` é **JSON puro** com ids estáveis — a doc do formato o descreve como
+*"a JSON structure, that describes an object tree, not unlike HTML or SVG"*, e
+os ids persistem entre edições. Consequência prática: ele é diffável em git, e
+os valores são consultáveis sem nenhuma ferramenta especial.
 
-Não existe fonte secundária: o `.pen` é a única cópia do design, e não há
-arquivo legível com os valores. Se ele não estiver aberto no editor, **pare e
-peça** — não deduza um hex, um px ou um radius de memória, nem do que já está
-escrito no CSS (o CSS é a transcrição, não a origem; se ele estiver errado,
-deduzir dele propaga o erro).
+Três caminhos, por custo crescente:
+
+- **Ler valores** → `jq '.variables' <arquivo>.pen`. Paleta e escalas inteiras,
+  sem ferramenta nenhuma.
+- **Consultar a árvore ou renderizar** → `pen interactive` do CLI, **headless**:
+
+  ```bash
+  printf 'execute({ input: %s })\nexit()\n' \
+    "'Get((n,c)=>{c.skipChildren();Print(n.id,n.name)})'" \
+  | pen interactive --in "$PWD/design/pendev/youtube-channel.pen" --out /tmp/x.pen
+  ```
+
+  Dá `execute` (com `Get`/`Export`), `get_app_state` e `browser`. Não precisa de
+  editor aberto — é o que o CI usa (§14). **Exige CLI >= 0.3.5**: em 0.3.2 um
+  `.pen` com fills de imagem relativos carrega vazio, sem erro fatal.
+- **Editar** → MCP `pencil` com o arquivo aberto no editor, ou `pen interactive`
+  com `save()`. Nunca edite o JSON à mão.
+
+Leia sempre do `.pen`, nunca do CSS já escrito: o CSS é a transcrição, e se ele
+estiver errado, deduzir dele propaga o erro.
 
 O design foi medido de `youtube.com/@FullCycle` a 1440px, em light e dark. Os
 tokens em CSS são escritos à mão em `app/globals.css`, transcritos do `.pen`.
@@ -302,6 +317,68 @@ O `.pen` muda primeiro. Depois:
 Não há geração automática em lugar nenhum do caminho: cada passo acima é manual
 e proposital. O `.pen` é sempre quem vence — se o CSS discorda dele, o CSS está
 errado.
+
+## 14. CI
+
+`scripts/pen-export.sh` renderiza telas nomeadas do `.pen`, headless. Ele
+checa a versão do CLI e falha se alguma tela não resolver — no design, tela
+renomeada tem que quebrar o CI, não sumir do relatório.
+
+Dois workflows em `.github/workflows/`:
+
+- **`design-diff.yml`** — dispara quando `design/` muda. Não existe `pen diff`,
+  então a comparação é montada sobre um **worktree** da base (não um `git show`
+  para `/tmp`: o `.pen` resolve `./assets/*` relativo à própria árvore, e o
+  render sairia sem imagem nenhuma — silenciosamente). São três camadas:
+
+  | camada | pega |
+  |---|---|
+  | `variables` | cor ou escala trocada, token adicionado/removido |
+  | inventário de `reusable` | componente adicionado, removido, renomeado |
+  | estrutura de cada `reusable` (sem `id`/`x`/`y`) | mudança **dentro** de um componente |
+
+  A terceira existe porque as duas primeiras têm um ponto cego: trocar o padding
+  do Chip de `$space-3` para `$space-4` não mexe em token nem em inventário.
+  Composição de tela não entra em nenhuma delas — instanciada dá milhares de
+  linhas; mudança de tela se vê no PNG, que vai como artefato.
+- **`design-drift.yml`** — dispara quando `app/`, `components/` ou `design/`
+  mudam. Roda `claude-code-action` em automation mode com três evidências, cada
+  uma autoridade sobre uma coisa:
+
+  | arquivo | autoridade sobre |
+  |---|---|
+  | `components.html` | geometria e tipografia **resolvidas em px** (só tema claro) |
+  | `components.json` | qual **token** o design usa em cada propriedade |
+  | `tokens.json` | o que cada token vale em **light e dark** |
+
+  O HTML existe para o agente não ter que resolver `$radius-sm` → 8px sozinho —
+  errar essa resolução é literalmente a regra 3 que ele deveria estar auditando.
+  Audita as oito falhas do §12 e posta inline. As regras não vão no prompt: o
+  `CLAUDE.md` faz `@design/DESIGN-SYSTEM.md`, então este arquivo chega inteiro.
+
+Secrets: `PEN_CLI_KEY` e `ANTHROPIC_API_KEY`.
+
+### A armadilha do `html-tailwind`
+
+`Export(ids, "html-tailwind", ...)` produz um snapshot achatado: hex cru, zero
+`var(--)`, px absoluto e só o tema claro. Cada nó vem marcado com
+`data-pencil-name`, então dá para localizar um componente por nome.
+
+```html
+<div data-pencil-name="Chip"
+     class="h-[32px] p-[0px_12px] bg-[#0000000D] rounded-[8px]">
+```
+
+**Serve para conferir números, nunca para copiar código** — colar dali viola as
+regras 1, 2 e 9 de uma vez. É por isso que o CI o entrega ao auditor junto com
+os dois JSONs, e não sozinho: o HTML diz *quanto é*, o JSON diz *qual token*.
+
+### O que o CLI não faz em CI
+
+A tool `browser` carrega uma URL real e devolve DOM e computed styles — seria o
+jeito natural de comparar a app rodando contra o design. **Ela exige o app
+desktop** e responde `not available in this environment` no CLI headless. Fechar
+o loop visual em CI passa por renderizar a app com playwright, não pelo pen.
 
 ---
 

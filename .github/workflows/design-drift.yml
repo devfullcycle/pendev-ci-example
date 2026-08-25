@@ -1,0 +1,125 @@
+name: Design drift
+
+# Audita se o código traduziu o design corretamente. As regras não vão no
+# prompt: o CLAUDE.md faz @design/DESIGN-SYSTEM.md, então a action carrega o
+# guia inteiro sozinha. O prompt só nomeia o que auditar e onde reportar.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "app/**"
+      - "components/**"
+      - "design/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+
+concurrency:
+  group: design-drift-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PEN_FILE: design/pendev/youtube-channel.pen
+
+jobs:
+  audit:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar pen.dev CLI
+        run: npm install -g @pen.dev/cli && pen version
+
+      # Três evidências, todas textuais. Nenhum PNG: render do design sem render
+      # da app é comparação de um lado só. E a tool `browser` do pen, que
+      # fecharia o loop carregando a app, exige o app desktop e não roda aqui.
+      #
+      #   components.html  geometria/tipografia RESOLVIDA em px  (só tema claro)
+      #   components.json  qual token o design usa               (nome do token)
+      #   tokens.json      o que cada token vale em light e dark
+      #
+      # O HTML existe para o agente não ter que resolver $radius-sm -> 8px
+      # sozinho — errar essa resolução é literalmente a regra 3 do audit.
+      - name: Extrair design
+        env:
+          PEN_CLI_KEY: ${{ secrets.PEN_CLI_KEY }}
+        run: |
+          mkdir -p /tmp/design
+          jq -S '{themes, variables}' "$PEN_FILE" > /tmp/design/tokens.json
+          jq -S '[.. | objects | select(.reusable == true)] | sort_by(.name)
+                 | map(walk(if type == "object" then del(.id, .x, .y) else . end))' \
+            "$PEN_FILE" > /tmp/design/components.json
+          NODES=$(jq -r '[.. | objects | select(.reusable == true) | .name] | join(";")' "$PEN_FILE")
+          PEN_NODES="$NODES" ./scripts/pen-export.sh \
+            "$PEN_FILE" /tmp/design/components.html 1 html-tailwind
+          ls -la /tmp/design
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Audite drift entre o design e o código neste PR.
+
+            As regras estão em design/DESIGN-SYSTEM.md, já carregado via CLAUDE.md.
+
+            Evidência disponível, cada uma autoridade sobre uma coisa:
+
+            - /tmp/design/components.html — cada componente com geometria e
+              tipografia JÁ RESOLVIDAS em px, marcado com data-pencil-name.
+              Grepe por data-pencil-name="Chip" para achar um componente.
+              Use para conferir NÚMEROS: 32px de altura, 8px de radius, 14/20 de
+              texto. Só tem tema claro. NUNCA copie código daqui: a saída é
+              achatada (hex cru, px absoluto) e viola as regras 1, 2 e 9.
+            - /tmp/design/components.json — qual TOKEN o design usa em cada
+              propriedade ($radius-sm, $surface-chip). Use quando a pergunta for
+              "qual token deveria estar aqui".
+            - /tmp/design/tokens.json — o que cada token vale em light E dark.
+              Autoridade sobre cor e tema; o CSS do repo é transcrição e pode
+              estar errado.
+
+            Escopo — decida pelo que mudou:
+            git diff --name-only origin/${{ github.base_ref }}...HEAD
+
+            - Mudou código (app/, components/): audite os arquivos alterados.
+            - Mudou SÓ o design (design/pendev/): o código não mudou, mas pode
+              ter ficado defasado. Compare o que mudou no .pen contra os
+              componentes React correspondentes, mesmo que eles não estejam no
+              diff. Este é o caso que mais escapa em review.
+            - Mudaram os dois: faça as duas coisas.
+
+            Procure exatamente estas oito falhas — todas compilam e parecem
+            certas, por isso passam em review:
+
+            1. Cor crua em className (`#`, `rgb(`, `hsl(`) — quebra o tema escuro
+            2. Qualquer variante `dark:` — significa token semântico faltando
+            3. Radius traduzido pelo nome em vez do valor. Os nomes do .pen estão
+               deslocados um degrau: $radius-sm é 8px e vira rounded-lg, não
+               rounded-sm. Confira contra a tabela do §6.
+            4. `p-14` onde o design pede $space-14 (58px, não os 56px de p-14)
+            5. `text-lg`/`text-sm` usados achando que batem com o .pen
+               (font-size-lg é 16px; text-lg do Tailwind é 18px)
+            6. Altura fixa em thumbnail (`h-[201px]`) em vez de aspect-video
+            7. Token ou componente que não existe em tokens.json nem no .pen.
+               Exceção única: estados de interação e foco (§9).
+            8. Prop `className` exposta em componente (§7)
+
+            Para cada achado, poste comentário inline na linha exata, com a regra
+            violada e a correção, citando a seção do DESIGN-SYSTEM.md.
+            Se não houver achado, não poste nada.
+
+            Não reporte estilo, nomes ou arquitetura fora dessas oito.
+          claude_args: |
+            --max-turns 20
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(jq:*)"

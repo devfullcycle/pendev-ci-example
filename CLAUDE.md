@@ -47,7 +47,7 @@ Your training data likely predates this version. Read `node_modules/next/dist/do
 
 ## Agent tooling
 
-`.mcp.json` wires up **playwright** and **chrome-devtools** (drive/inspect the running app in a browser) and **pencil** (read/generate `.pen` design files — never `Read`/`Grep` a `.pen`, it is encrypted; go through the MCP tools). `design/pendev/` is the home for those design sources and `design/` holds UI mocks — check there for the intended look before inventing a layout.
+`.mcp.json` wires up **playwright** and **chrome-devtools** (drive/inspect the running app in a browser) and **pencil** (read/generate `.pen` design files). A `.pen` is plain JSON with stable ids. Read values with `jq`; query the tree or render nodes with `pen interactive --in <abs path> --out <tmp>`, which runs **headless** and needs no editor (requires pen CLI >= 0.3.5 — 0.3.2 loads a .pen with relative image fills as an empty document, silently). Edit only through the MCP tools or the CLI's `save()`; hand-editing the JSON breaks tree consistency. `design/pendev/` is the home for those design sources; see `design/DESIGN-SYSTEM.md` before inventing a layout.
 
 Consider adding `next-devtools-mcp` to `.mcp.json` if you need build/runtime/type errors from the live dev server (see `node_modules/next/dist/docs/01-app/02-guides/mcp.md`).
 
