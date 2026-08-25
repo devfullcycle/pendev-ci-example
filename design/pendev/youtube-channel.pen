@@ -2022,7 +2022,7 @@
       "cornerRadius": "$radius-sm",
       "padding": [
         0,
-        "$space-3"
+        "$space-4"
       ],
       "justifyContent": "center",
       "alignItems": "center",
@@ -5552,7 +5552,7 @@
     },
     "radius-nav": {
       "type": "number",
-      "value": 10
+      "value": 12
     },
     "radius-md": {
       "type": "number",
