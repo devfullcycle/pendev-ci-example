@@ -71,6 +71,11 @@ jobs:
           ./scripts/pen-outline.py "$PEN_FILE" > /tmp/design/screens.json
           ls -la /tmp/design
 
+      # Seis das nove regras são regex sobre o diff. Rodá-las aqui é
+      # determinístico e grátis; o agente entra só para verificar e julgar.
+      - name: Pré-análise mecânica
+        run: ./scripts/drift-scan.sh "origin/${{ github.base_ref }}" | tee /tmp/design/scan.txt
+
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -78,6 +83,19 @@ jobs:
             Audite drift entre o design e o código neste PR.
 
             As regras estão em design/DESIGN-SYSTEM.md, já carregado via CLAUDE.md.
+
+            SIGA ESTA ORDEM. Ela existe para você não gastar turnos:
+
+            1. Leia /tmp/design/scan.txt PRIMEIRO. A varredura mecânica já rodou
+               sobre o diff e listou as ocorrências das regras 1, 2, 4, 5, 6, 8
+               e os radius da 3. Se uma seção não aparece lá, essa regra passou:
+               não a reinvestigue.
+            2. Para cada ocorrência listada, abra só aquele arquivo e confirme
+               se é violação de verdade ou uso correto.
+            3. Só então cheque as regras 7 e 9, que exigem comparar com o design.
+
+            NUNCA use Read em /tmp/design/components.html: são 107KB e vai
+            estourar seu contexto. Use grep com data-pencil-name="<nome>".
 
             Evidência disponível, cada uma autoridade sobre uma coisa:
 
@@ -134,5 +152,5 @@ jobs:
 
             Não reporte estilo, nomes ou arquitetura fora dessas nove.
           claude_args: |
-            --max-turns 20
+            --max-turns 30
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(jq:*)"
