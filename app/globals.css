@@ -1,26 +1,165 @@
 @import "tailwindcss";
 
+/* Tokens transcritos de design/pendev/youtube-channel.pen.
+   O .pen é a autoridade; este arquivo é a transcrição. Divergiu? o .pen vence.
+   Regras de tradução: design/DESIGN-SYSTEM.md */
+
+/* ---- primitivos ------------------------------------------------------
+   Ficam FORA do @theme de propósito: assim `bg-grey-950` não compila e a
+   camada semântica é a única alcançável pelo JSX. (§3) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --white: #FFFFFF;
+  --black: #000000;
+  --grey-50: #F9F9F9;
+  --grey-75: #F8F8F8;
+  --grey-100: #F2F2F2;
+  --grey-150: #F1F1F1;
+  --grey-200: #E5E5E5;
+  --grey-250: #D3D3D3;
+  --grey-300: #C6C6C6;
+  --grey-400: #AAAAAA;
+  --grey-500: #909090;
+  --grey-600: #606060;
+  --grey-700: #303030;
+  --grey-800: #212121;
+  --grey-850: #181818;
+  --grey-900: #0F0F0F;
+  --grey-950: #121212;
+  --red-500: #FF0033;
+  --blue-300: #3EA6FF;
+  --blue-600: #065FD4;
+  --yellow-400: #FFD016;
+  --alpha-black-05: #0000000D;
+  --alpha-black-10: #0000001A;
+  --alpha-black-20: #00000033;
+  --alpha-black-60: #00000099;
+  --alpha-white-10: #FFFFFF1A;
+  --alpha-white-20: #FFFFFF33;
+  --alpha-white-70: #FFFFFFB3;
+  --transparent: #00000000;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ---- semânticos: tema claro ---- */
+:root {
+  --surface-page: var(--white);
+  --surface-raised: var(--white);
+  --surface-subtle: var(--grey-100);
+  --surface-chip: var(--alpha-black-05);
+  --surface-hover: var(--alpha-black-10);
+  --surface-inverse: var(--grey-900);
+  --surface-input: var(--white);
+  --surface-search-btn: var(--grey-75);
+  --surface-overlay: var(--alpha-black-60);
+  --text-primary: var(--grey-900);
+  --text-secondary: var(--grey-600);
+  --text-inverse: var(--grey-150);
+  --text-on-overlay: var(--white);
+  --text-link: var(--blue-600);
+  --border-subtle: var(--alpha-black-10);
+  --border-divider: var(--alpha-black-20);
+  --border-strong: var(--grey-300);
+  --border-control: var(--alpha-black-20);
+  --border-search-btn: var(--grey-250);
+  --brand-primary: var(--red-500);
+  --accent-thumbnail: var(--yellow-400);
+  --focus: var(--blue-600); /* §9: única adição autorizada fora do .pen */
 }
 
+/* ---- tema escuro: media query com opt-out ---- */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --surface-page: var(--grey-900);
+    --surface-raised: var(--grey-800);
+    --surface-subtle: var(--grey-800);
+    --surface-chip: var(--alpha-white-10);
+    --surface-hover: var(--alpha-white-10);
+    --surface-inverse: var(--grey-150);
+    --surface-input: var(--grey-950);
+    --surface-search-btn: var(--grey-800);
+    --text-primary: var(--grey-150);
+    --text-secondary: var(--grey-400);
+    --text-inverse: var(--grey-900);
+    --text-link: var(--blue-300);
+    --border-subtle: var(--alpha-white-10);
+    --border-divider: var(--alpha-white-20);
+    --border-strong: var(--grey-700);
+    --border-control: var(--alpha-white-20);
+    --border-search-btn: var(--grey-700);
+    --focus: var(--blue-300);
   }
 }
 
+/* ---- tema escuro: atributo explícito, para o toggle futuro ---- */
+:root[data-theme="dark"] {
+  --surface-page: var(--grey-900);
+  --surface-raised: var(--grey-800);
+  --surface-subtle: var(--grey-800);
+  --surface-chip: var(--alpha-white-10);
+  --surface-hover: var(--alpha-white-10);
+  --surface-inverse: var(--grey-150);
+  --surface-input: var(--grey-950);
+  --surface-search-btn: var(--grey-800);
+  --text-primary: var(--grey-150);
+  --text-secondary: var(--grey-400);
+  --text-inverse: var(--grey-900);
+  --text-link: var(--blue-300);
+  --border-subtle: var(--alpha-white-10);
+  --border-divider: var(--alpha-white-20);
+  --border-strong: var(--grey-700);
+  --border-control: var(--alpha-white-20);
+  --border-search-btn: var(--grey-700);
+  --focus: var(--blue-300);
+}
+
+/* ---- o que vira utilitário ------------------------------------------ */
+@theme inline {
+  --color-surface-page: var(--surface-page);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-chip: var(--surface-chip);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-surface-input: var(--surface-input);
+  --color-surface-search-btn: var(--surface-search-btn);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-on-overlay: var(--text-on-overlay);
+  --color-text-link: var(--text-link);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-divider: var(--border-divider);
+  --color-border-strong: var(--border-strong);
+  --color-border-control: var(--border-control);
+  --color-border-search-btn: var(--border-search-btn);
+  --color-brand-primary: var(--brand-primary);
+  --color-accent-thumbnail: var(--accent-thumbnail);
+  --color-focus: var(--focus);
+
+  --font-sans: var(--font-roboto), Arial, Helvetica, sans-serif;
+
+  /* papéis tipográficos: tamanho e line-height pareados (§5) */
+  --text-body: 14px;
+  --text-body--line-height: 1.43;
+  --text-title: 16px;
+  --text-title--line-height: 1.375;
+  --text-heading: 20px;
+  --text-heading--line-height: 1.4;
+  --text-display: 36px;
+  --text-display--line-height: 1.39;
+  --text-caption: 12px;
+  --text-caption--line-height: 1.5;
+
+  /* único radius fora da escala nativa do Tailwind (§6) */
+  --radius-nav: 10px;
+
+  /* única sombra do sistema: Button / Carousel (§6) */
+  --shadow-carousel: 0 1px 6px #00000026;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
