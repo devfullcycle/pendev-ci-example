@@ -342,18 +342,26 @@ Dois workflows em `.github/workflows/`:
   Composição de tela não entra em nenhuma delas — instanciada dá milhares de
   linhas; mudança de tela se vê no PNG, que vai como artefato.
 - **`design-drift.yml`** — dispara quando `app/`, `components/` ou `design/`
-  mudam. Roda `claude-code-action` em automation mode com três evidências, cada
-  uma autoridade sobre uma coisa:
+  mudam. Roda `claude-code-action` em automation mode com quatro evidências,
+  cada uma autoridade sobre uma coisa:
 
   | arquivo | autoridade sobre |
   |---|---|
   | `components.html` | geometria e tipografia **resolvidas em px** (só tema claro) |
   | `components.json` | qual **token** o design usa em cada propriedade |
   | `tokens.json` | o que cada token vale em **light e dark** |
+  | `screens.json` | **composição** das telas: quais componentes, em que ordem |
 
   O HTML existe para o agente não ter que resolver `$radius-sm` → 8px sozinho —
   errar essa resolução é literalmente a regra 3 que ele deveria estar auditando.
-  Audita as oito falhas do §12 e posta inline. As regras não vão no prompt: o
+
+  O `screens.json` existe porque as três primeiras só olham `reusable`, e tela
+  não é reusable: sem ele o audit cobre componente e deixa página descoberta.
+  `scripts/pen-outline.py` o produz podando o conteúdo instanciado — títulos e
+  thumbnails são fixture, não design —, o que derruba as duas telas de ~2000
+  para ~460 linhas.
+
+  Audita as nove falhas do §12 e posta inline. As regras não vão no prompt: o
   `CLAUDE.md` faz `@design/DESIGN-SYSTEM.md`, então este arquivo chega inteiro.
 
 Secrets: `PEN_CLI_KEY` e `ANTHROPIC_API_KEY`.
