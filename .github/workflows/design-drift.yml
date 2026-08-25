@@ -132,7 +132,7 @@ jobs:
               diff. Este é o caso que mais escapa em review.
             - Mudaram os dois: faça as duas coisas.
 
-            Procure exatamente estas nove falhas — todas compilam e parecem
+            Procure exatamente estas dez falhas — todas compilam e parecem
             certas, por isso passam em review:
 
             1. Cor crua em className (`#`, `rgb(`, `hsl(`) — quebra o tema escuro
@@ -150,12 +150,22 @@ jobs:
             9. Página que não bate com screens.json: componente faltando, ordem
                trocada, container com gap ou padding diferente. Atenção ao
                Header Region, que usa $space-14 — 58px, não os 56px de p-14.
+            10. Componente cujos valores DIVERGEM do design. Esta é a definição
+                de drift e a mais importante da lista: o componente existe, o
+                nome está certo, e uma propriedade não bate — padding, gap,
+                altura, cor, tipografia. Confira contra components.html (px já
+                resolvido) e components.json (o token). Vale mesmo quando o
+                .tsx não está no diff: se o scan disser que o design mudou, o
+                código correspondente está defasado até prova em contrário.
 
             Para cada achado, poste comentário inline na linha exata, com a regra
             violada e a correção, citando a seção do DESIGN-SYSTEM.md.
+            Comentário inline só cola em linha que está no diff: se o arquivo
+            defasado não mudou neste PR, comente na linha do .pen que causou a
+            divergência, nomeando o arquivo e a linha do código.
             Se não houver achado, não poste nada.
 
-            Não reporte estilo, nomes ou arquitetura fora dessas nove.
+            Não reporte estilo, nomes ou arquitetura fora dessas dez.
           claude_args: |
             --max-turns 60
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(jq:*)"
