@@ -50,6 +50,21 @@ hit 3 "radius na zona de colisão — conferir contra a tabela do §6" \
     '\brounded-(xs|sm|md|lg|xl|2xl|3xl)\b'
 } > /tmp/drift-scan.txt
 
+# Regra 7, metade mecânica: todo data-component precisa existir como frame
+# reusable no .pen. O que o design não nomeia, o código não deveria inventar.
+PEN="${PEN_FILE:-design/pendev/youtube-channel.pen}"
+if [ -f "$PEN" ]; then
+  jq -r '[.. | objects | select(.reusable == true) | .name] | sort | .[]' "$PEN" > /tmp/pen-names.txt
+  grep -ohE 'data-component="[^"]+"' "${FILES[@]}" 2>/dev/null \
+    | sed 's/data-component="//; s/"$//' | sort -u > /tmp/code-names.txt
+  unknown=$(comm -23 /tmp/code-names.txt /tmp/pen-names.txt)
+  if [ -n "$unknown" ]; then
+    printf '\n## regra 7 — data-component sem frame correspondente no .pen\n%s\n' "$unknown" >> /tmp/drift-scan.txt
+  fi
+  printf '\n## componentes do design presentes neste diff\n%s\n' \
+    "$(comm -12 /tmp/code-names.txt /tmp/pen-names.txt)" >> /tmp/drift-scan.txt
+fi
+
 if [ -s /tmp/drift-scan.txt ]; then
   echo; echo "=== ocorrências para o agente verificar ==="; cat /tmp/drift-scan.txt
 else
