@@ -9,10 +9,13 @@ on:
     paths:
       # só a fonte do design — mexer no DESIGN-SYSTEM.md não justifica render
       - "design/pendev/**"
+      - "scripts/**"
+      - ".github/workflows/design-diff.yml"
 
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
 
 concurrency:
   group: design-diff-${{ github.event.pull_request.number }}
@@ -104,14 +107,68 @@ jobs:
           path: /tmp/render/out/*
           if-no-files-found: error
 
+      # O diff acima é exato e ilegível: quem revisa precisa conhecer o sistema
+      # de tokens para saber que $space-3 -> $space-4 é "o chip ficou 4px mais
+      # largo". O agente escreve a leitura; o diff cru fica dobrado embaixo.
+      #
+      # Ele NÃO posta: escreve um arquivo, e o passo seguinte publica. Assim a
+      # publicação continua determinística e o comentário sai mesmo se o agente
+      # falhar — só que sem a parte humana.
+      - uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Escreva a leitura humana de uma mudança de design, para quem vai
+            revisar este PR.
+
+            Entrada:
+            - /tmp/render/summary.md — o diff de tokens, inventário e estrutura
+            - /tmp/render/head.tokens.json — os tokens depois da mudança
+            - /tmp/render/base.tokens.json — antes
+
+            As regras de tradução estão em design/DESIGN-SYSTEM.md, já carregado
+            via CLAUDE.md.
+
+            Escreva no MÁXIMO 12 linhas, em português, e grave em
+            /tmp/render/human.md. Não poste nada; não use ferramenta de
+            comentário.
+
+            O que a leitura precisa ter:
+            - o que mudou em PIXELS, não em nome de token. "$space-3 -> $space-4"
+              não diz nada; "o padding lateral do Chip vai de 12px para 16px" diz.
+            - o que isso exige do código: nomeie o arquivo e a classe que
+              precisam mudar (ex: components/chip.tsx, px-3 -> px-4), e o
+              app/globals.css quando for token.
+            - o que passa despercebido: se o valor novo cair numa das armadilhas
+              do doc (radius deslocado, $space-14, text-lg), diga.
+
+            Se o resumo indicar que nada mudou, escreva uma linha só dizendo isso.
+          claude_args: |
+            --max-turns 15
+            --allowedTools "Read,Grep,Glob,Write,Bash(jq:*),Bash(sed:*),Bash(head:*)"
+
       - name: Comentar no PR
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           {
             echo "## Design vs \`${{ github.base_ref }}\`"
             echo
-            cat /tmp/render/summary.md
+            if [ -s /tmp/render/human.md ]; then
+              cat /tmp/render/human.md
+              echo
+              echo "<details><summary>Diff exato (tokens, inventário, estrutura)</summary>"
+              echo
+              cat /tmp/render/summary.md
+              echo "</details>"
+            else
+              echo "_A leitura automática falhou; segue o diff cru._"
+              echo
+              cat /tmp/render/summary.md
+            fi
+            echo
             echo "Renders antes/depois: [artefato do run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)"
           } > /tmp/render/comment.md
           gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/render/comment.md
