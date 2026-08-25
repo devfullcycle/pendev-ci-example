@@ -11,6 +11,8 @@ on:
       - "app/**"
       - "components/**"
       - "design/**"
+      - "scripts/**"
+      - ".github/workflows/design-drift.yml"
 
 permissions:
   contents: read
