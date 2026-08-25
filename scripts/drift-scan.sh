@@ -11,7 +11,44 @@ FILES=("$@")
 if [ ${#FILES[@]} -eq 0 ]; then
   mapfile -t FILES < <(git diff --name-only "$BASE...HEAD" -- 'app/**' 'components/**' | grep -E '\.(tsx|ts|css)$' || true)
 fi
-[ ${#FILES[@]} -eq 0 ] && { echo "nenhum arquivo de código no diff"; exit 0; }
+# O design também pode ter andado sozinho. Nesse caso o diff de código é
+# vazio, mas o código pode ter ficado defasado — e é o caso que mais escapa,
+# porque nenhum arquivo de código aparece no PR para chamar atenção.
+design_side() {
+  local pen="${PEN_FILE:-design/pendev/youtube-channel.pen}"
+  git diff --quiet "$BASE...HEAD" -- "$pen" && return
+  local strip='walk(if type == "object" then del(.id, .x, .y) else . end)'
+  git show "$BASE:$pen" > /tmp/base.pen 2>/dev/null || return
+
+  jq -S '.variables // {}' /tmp/base.pen > /tmp/base.tok
+  jq -S '.variables // {}' "$pen"        > /tmp/head.tok
+  # com contexto: sem ele o diff mostra "10 -> 12" sem dizer QUAL token
+  local tok
+  tok=$(diff -U4 /tmp/base.tok /tmp/head.tok | tail -n +3 || true)
+  [ -n "$tok" ] && printf '\n## design mudou — TOKENS (transcreva para app/globals.css, §13)\n%s\n' "$tok"
+
+  # quais componentes mudaram por dentro
+  local changed=""
+  while read -r name; do
+    [ -z "$name" ] && continue
+    a=$(jq -S --arg n "$name" "[.. | objects | select(.reusable == true and .name == \$n)] | map($strip)" /tmp/base.pen)
+    b=$(jq -S --arg n "$name" "[.. | objects | select(.reusable == true and .name == \$n)] | map($strip)" "$pen")
+    [ "$a" != "$b" ] && changed="$changed$name"$'\n'
+  done < <(jq -r '[.. | objects | select(.reusable == true) | .name] | .[]' "$pen")
+
+  if [ -n "$changed" ]; then
+    printf '\n## design mudou — COMPONENTES (confira o .tsx de mesmo nome)\n%s\n' "$changed"
+  fi
+}
+
+if [ ${#FILES[@]} -eq 0 ]; then
+  echo "nenhum arquivo de código no diff"
+  { design_side; } > /tmp/drift-scan.txt
+  if [ -s /tmp/drift-scan.txt ]; then
+    echo; echo "=== mas o design andou ==="; cat /tmp/drift-scan.txt
+  fi
+  exit 0
+fi
 
 # Descarta linhas de comentário: o próprio código cita as regras nos
 # comentários ("NÃO os 56px de p-14"), e isso casaria com os padrões.
@@ -48,6 +85,7 @@ hit 8 "prop className exposta (componente deve ser fechado)" \
 # rounded-nav e rounded-full não são ambíguos; os outros colidem com o .pen
 hit 3 "radius na zona de colisão — conferir contra a tabela do §6" \
     '\brounded-(xs|sm|md|lg|xl|2xl|3xl)\b'
+design_side
 } > /tmp/drift-scan.txt
 
 # Regra 7, metade mecânica: todo data-component precisa existir como frame
