@@ -82,18 +82,26 @@ jobs:
       - name: Comparação numérica com a app
         id: numeric
         continue-on-error: true
+        shell: bash
         run: |
-          if [ ! -d app ] || [ -z "$(find app -name 'page.tsx' -not -path 'app/page.tsx' 2>/dev/null)" ]; then
+          set -x
+          routes=$(find app -name 'page.tsx' -not -path 'app/page.tsx' 2>/dev/null || true)
+          if [ -z "$routes" ]; then
             echo "sem rota de tela ainda — comparação numérica pulada" > /tmp/design/numeric.md
+            cat /tmp/design/numeric.md
             exit 0
           fi
-          npm ci --silent
-          npx playwright install chromium --only-shell >/dev/null 2>&1 || npx playwright install chromium
+
+          npm ci
+          npx playwright install chromium
           npm run build
           npm start &
+
           for _ in $(seq 1 40); do
             curl -sf -o /dev/null "$APP_URL" && break || sleep 2
           done
+          curl -sf -o /dev/null "$APP_URL" || { echo "a app não subiu em $APP_URL" > /tmp/design/numeric.md; cat /tmp/design/numeric.md; exit 1; }
+
           node scripts/compare-styles.mjs /tmp/design/components.html "$APP_URL" \
             > /tmp/design/numeric.md 2>&1 || true
           cat /tmp/design/numeric.md
@@ -125,6 +133,12 @@ jobs:
             3. Leia /tmp/design/numeric.md. As divergências ali são medidas,
                não inferidas — vire cada uma em achado da regra 10.
             4. Só então cheque as regras 7 e 9, que exigem comparar com o design.
+
+            PARE CEDO. Se scan.txt não listar nenhuma ocorrência E numeric.md
+            disser "nenhuma divergência numérica", então as regras 1 a 8 e a 10
+            já passaram por medição. Cheque só a 9 e termine. Não vá reler
+            componentes para "confirmar" o que já foi medido — medição não
+            precisa de segunda opinião.
 
             NUNCA use Read em /tmp/design/components.html: são 107KB e vai
             estourar seu contexto. Use grep com data-pencil-name="<nome>".
