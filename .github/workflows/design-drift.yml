@@ -92,7 +92,11 @@ jobs:
             exit 0
           fi
 
-          npm ci
+          # `npm ci` exige lock em sincronia, e npm de versões diferentes
+          # resolvem dependências nativas opcionais (@emnapi/*) de formas
+          # diferentes. Este step é verificação, não build de release: se o
+          # lock não bater, instalar mesmo assim é melhor que não medir nada.
+          npm ci || npm install --no-audit --no-fund
           npx playwright install chromium
           npm run build
           npm start &
