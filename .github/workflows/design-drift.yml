@@ -26,6 +26,7 @@ concurrency:
 
 env:
   PEN_FILE: design/pendev/youtube-channel.pen
+  APP_URL: http://localhost:3000/@FullCycle/videos
 
 jobs:
   audit:
@@ -73,6 +74,30 @@ jobs:
           ./scripts/pen-outline.py "$PEN_FILE" > /tmp/design/screens.json
           ls -la /tmp/design
 
+      # A comparação numérica: sobe a app, lê getComputedStyle de cada
+      # [data-component] e confronta com o design renderizado. `rounded-lg` no
+      # código e `rounded-[8px]` no design são strings diferentes e o mesmo
+      # valor — o navegador normaliza os dois dialetos, então isto vira
+      # aritmética e não julgamento. Não roda se ainda não houver rota.
+      - name: Comparação numérica com a app
+        id: numeric
+        continue-on-error: true
+        run: |
+          if [ ! -d app ] || [ -z "$(find app -name 'page.tsx' -not -path 'app/page.tsx' 2>/dev/null)" ]; then
+            echo "sem rota de tela ainda — comparação numérica pulada" > /tmp/design/numeric.md
+            exit 0
+          fi
+          npm ci --silent
+          npx playwright install chromium --only-shell >/dev/null 2>&1 || npx playwright install chromium
+          npm run build
+          npm start &
+          for _ in $(seq 1 40); do
+            curl -sf -o /dev/null "$APP_URL" && break || sleep 2
+          done
+          node scripts/compare-styles.mjs /tmp/design/components.html "$APP_URL" \
+            > /tmp/design/numeric.md 2>&1 || true
+          cat /tmp/design/numeric.md
+
       # Seis das nove regras são regex sobre o diff. Rodá-las aqui é
       # determinístico e grátis; o agente entra só para verificar e julgar.
       - name: Pré-análise mecânica
@@ -97,7 +122,9 @@ jobs:
                reinvestigue, e não abra arquivo para reconferir o que ela cobre.
             2. Para cada ocorrência listada, abra só aquele arquivo e confirme
                se é violação de verdade ou uso correto.
-            3. Só então cheque as regras 7 e 9, que exigem comparar com o design.
+            3. Leia /tmp/design/numeric.md. As divergências ali são medidas,
+               não inferidas — vire cada uma em achado da regra 10.
+            4. Só então cheque as regras 7 e 9, que exigem comparar com o design.
 
             NUNCA use Read em /tmp/design/components.html: são 107KB e vai
             estourar seu contexto. Use grep com data-pencil-name="<nome>".
@@ -116,6 +143,12 @@ jobs:
             - /tmp/design/tokens.json — o que cada token vale em light E dark.
               Autoridade sobre cor e tema; o CSS do repo é transcrição e pode
               estar errado.
+            - /tmp/design/numeric.md — a comparação numérica JÁ FEITA entre o
+              design renderizado e a app rodando, por [data-component]. Se ela
+              listar divergências, elas são fato, não hipótese: reporte cada uma
+              como regra 10, apontando o arquivo do componente. Se disser
+              "nenhuma divergência numérica", não reinvestigue geometria de
+              componente — foi medida.
             - /tmp/design/screens.json — a COMPOSIÇÃO de cada tela: quais
               componentes, em que ordem, dentro de que container, com que gap e
               padding. É contra isto que os arquivos em app/ devem bater.
