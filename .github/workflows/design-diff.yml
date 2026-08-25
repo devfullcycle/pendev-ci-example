@@ -9,6 +9,8 @@ on:
     paths:
       # só a fonte do design — mexer no DESIGN-SYSTEM.md não justifica render
       - "design/pendev/**"
+      - "scripts/**"
+      - ".github/workflows/design-diff.yml"
 
 permissions:
   contents: read
