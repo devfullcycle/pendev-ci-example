@@ -68,10 +68,38 @@ async function collect(page, attr) {
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
-await page.goto(pathToFileURL(designPath).href, { waitUntil: "networkidle" });
+// `networkidle` não serve: basta uma conexão persistente para nunca ficar
+// ocioso, e o goto estoura. `load` mais um sinal explícito de prontidão é
+// determinístico.
+await page.goto(pathToFileURL(designPath).href, { waitUntil: "load", timeout: 60000 });
+
+// O export do design aplica as classes via cdn.tailwindcss.com. Sem rede, a
+// página renderiza CRUA — e aí o comparador acusaria divergência em tudo. Essa
+// é a falha que precisa gritar, não passar por achado.
+try {
+  await page.waitForFunction(() => {
+    // não serve olhar o primeiro nó nomeado: no export ele é o sheet do board,
+    // que é block. Um `.flex` computando `flex` prova que o CDN processou.
+    const el = document.querySelector(".flex");
+    return el && getComputedStyle(el).display === "flex";
+  }, { timeout: 30000 });
+} catch {
+  console.error("o Tailwind do CDN não aplicou no export do design — sem isso");
+  console.error("toda propriedade viraria divergência falsa. Abortando.");
+  await browser.close();
+  process.exit(2);
+}
 const design = await collect(page, "data-pencil-name");
 
-await page.goto(appUrl, { waitUntil: "networkidle" });
+await page.goto(appUrl, { waitUntil: "load", timeout: 60000 });
+try {
+  await page.waitForSelector("[data-component]", { timeout: 30000 });
+} catch {
+  console.error(`nenhum [data-component] em ${appUrl} — a tela não usa os`);
+  console.error("componentes do design system, ou o atributo não foi emitido.");
+  await browser.close();
+  process.exit(2);
+}
 const app = await collect(page, "data-component");
 
 await browser.close();
