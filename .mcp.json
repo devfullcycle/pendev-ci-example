@@ -1,0 +1,23 @@
+{
+    "mcpServers": {
+        "chrome-devtools": {
+            "command": "npx",
+            "args": [
+                "chrome-devtools-mcp@latest"
+            ]
+        },
+        "playwright": {
+            "command": "npx",
+            "args": [
+                "@playwright/mcp@latest"
+            ]
+        },
+        "pencil": {
+            "command": "/home/argen/.pencil/mcp/visual_studio_code_-_insiders/out/mcp-server-linux-x64",
+            "args": [
+                "--app",
+                "visual_studio_code_-_insiders"
+            ]
+        }
+    }
+}

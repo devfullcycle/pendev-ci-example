@@ -1,0 +1,4 @@
+{
+    "[pencil]": { "files.autoSave": "off" },
+    "[pen]": { "files.autoSave": "off" }
+}
