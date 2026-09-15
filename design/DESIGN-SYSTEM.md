@@ -252,10 +252,16 @@ dessa linha — player, barra de ações e comentários são componentes novos.
 
 ### Rotas
 
+O mapa tela → página → URL é `design/screen-routes.json`. É por ele que o CI
+mede a app (§14), então rota nova entra lá:
+
+```json
+"Channel — Videos": { "page": "app/[handle]/videos/page.tsx", "url": "/@FullCycle/videos" }
 ```
-app/[handle]/page.tsx          ← Channel — Home    (desenhado)
-app/[handle]/videos/page.tsx   ← Channel — Videos  (desenhado)
-```
+
+Tela com entrada e sem `page.tsx` aparece como "não implementada"; tela do
+`.pen` sem entrada, como "sem entrada". Nenhum dos dois é erro. Erro é o
+contrário: entrada para uma tela que o `.pen` não tem mais.
 
 `[handle]` captura o segmento literal `@FullCycle`. **Nunca crie uma pasta
 `@handle`** — no App Router `@folder` é slot de parallel route e não aparece na
@@ -293,17 +299,32 @@ Ao terminar uma tela:
 1. `npm run dev`
 2. Emular 1440×900 com `prefers-color-scheme: light` → screenshot
 3. Emular `prefers-color-scheme: dark` → screenshot
-4. Checklist:
-
-```
-☐ grep -rE 'dark:|#[0-9a-fA-F]{3,}|rgb\(|hsl\(' components/ app/  → vazio
-☐ todo [Npx] no diff tem origem no .pen
-☐ nenhum rounded-sm/md/lg escrito sem conferir a tabela do §6
-☐ nenhum h-[...] em thumbnail (§8)
-☐ nenhum token ou componente novo (§10)
-```
+4. Conferir as dez regras abaixo — `scripts/drift-scan.sh origin/main` roda
+   localmente a mesma varredura do CI
 
 O tema escuro é obrigatório: é onde um hex esquecido aparece.
+
+### As dez regras
+
+Esta é a lista canônica. O CI (§14) audita exatamente estas, **com estes
+números**: o número entra na chave que evita repostar o mesmo achado a cada
+push, então renumerar faz todo achado antigo voltar como novo. Regra nova entra
+no fim.
+
+Todas compilam e parecem certas — é por isso que passam em review.
+
+| # | falha | regra de origem | quem pega no CI |
+|---|---|---|---|
+| 1 | cor crua em `className` (`#`, `rgb(`, `hsl(`) — quebra o tema escuro | §2.2, §3 | varredura + agente |
+| 2 | variante `dark:` — faltou token semântico | §2.1 | varredura + agente |
+| 3 | radius traduzido pelo nome, não pelo valor (`$radius-sm` é 8px → `rounded-lg`) | §6 | varredura + agente |
+| 4 | `p-14` onde o design pede `$space-14` (58px, não 56px) | §4 | varredura + agente |
+| 5 | `text-lg`, `text-sm`… usados achando que batem com o `.pen` | §5 | varredura + agente |
+| 6 | altura fixa em thumbnail (`h-[201px]`) em vez de `aspect-video` | §8 | varredura + agente |
+| 7 | token ou componente que não existe no `.pen` (exceção: §9) | §2.3, §2.4, §10 | varredura (`data-component`) + agente |
+| 8 | prop `className` exposta em componente | §7 | varredura + agente |
+| 9 | página que não bate com a composição da tela: componente faltando, ordem trocada, gap ou padding de container diferente | §10 | agente |
+| 10 | valor que diverge do design: o componente existe e uma propriedade não bate — padding, gap, altura, cor, tipografia, px cru sem origem no `.pen` | §2.5, §13 | medição + agente |
 
 ## 13. Quando o design mudar
 
@@ -320,51 +341,137 @@ errado.
 
 ## 14. CI
 
-`scripts/pen-export.sh` renderiza telas nomeadas do `.pen`, headless. Ele
-checa a versão do CLI e falha se alguma tela não resolver — no design, tela
-renomeada tem que quebrar o CI, não sumir do relatório.
+Um workflow, `.github/workflows/design-check.yml`, responde duas perguntas: **o
+que mudou no design** e **se o código acompanha o design**. Um job, um agente,
+um comentário. Antes eram dois workflows com dois agentes, e os dois diziam a
+quem revisa o que mudar no código — um deduzindo do diff do design, o outro
+conferindo o código —, às vezes discordando. A lógica mora em `scripts/`: o
+YAML só encadeia, e cada passo roda local (fim desta seção). O fluxo desenhado
+está em `design/diagrams/design-check.excalidraw`.
 
-Dois workflows em `.github/workflows/`:
+### O que roda
 
-- **`design-diff.yml`** — dispara quando `design/` muda. Não existe `pen diff`,
-  então a comparação é montada sobre um **worktree** da base (não um `git show`
-  para `/tmp`: o `.pen` resolve `./assets/*` relativo à própria árvore, e o
-  render sairia sem imagem nenhuma — silenciosamente). São três camadas:
+`scripts/check-gate.sh` decide pelo que o PR mudou:
 
-  | camada | pega |
-  |---|---|
-  | `variables` | cor ou escala trocada, token adicionado/removido |
-  | inventário de `reusable` | componente adicionado, removido, renomeado |
-  | estrutura de cada `reusable` (sem `id`/`x`/`y`) | mudança **dentro** de um componente |
+| o PR mexe em | diff do design | auditoria |
+|---|---|---|
+| `design/pendev/**`, `scripts/**`, o próprio workflow | sim | sim |
+| `app/**`, `components/**`, este arquivo, `design/screen-routes.json` | não | sim |
 
-  A terceira existe porque as duas primeiras têm um ponto cego: trocar o padding
-  do Chip de `$space-3` para `$space-4` não mexe em token nem em inventário.
-  Composição de tela não entra em nenhuma delas — instanciada dá milhares de
-  linhas; mudança de tela se vê no PNG, que vai como artefato.
-- **`design-drift.yml`** — dispara quando `app/`, `components/` ou `design/`
-  mudam. Roda `claude-code-action` em automation mode com quatro evidências,
-  cada uma autoridade sobre uma coisa:
+- **Rascunho** roda só o diff do design, com render: quem itera no `.pen` vê o
+  antes/depois sem pagar build e agente a cada push. Medição e agente rodam
+  quando o PR sai de rascunho.
+- **Fork** não recebe secret nem token de escrita. Roda o que não precisa deles
+  — diff textual do design, sem render, e a varredura — e o relatório vai para
+  o job summary. `pull_request_target` está fora de questão: o job faz
+  `npm install` e build do código do PR, e um `postinstall` levaria as chaves.
 
-  | arquivo | autoridade sobre |
-  |---|---|
-  | `components.html` | geometria e tipografia **resolvidas em px** (só tema claro) |
-  | `components.json` | qual **token** o design usa em cada propriedade |
-  | `tokens.json` | o que cada token vale em **light e dark** |
-  | `screens.json` | **composição** das telas: quais componentes, em que ordem |
+### Diff do design — `scripts/design-diff.sh`
 
-  O HTML existe para o agente não ter que resolver `$radius-sm` → 8px sozinho —
-  errar essa resolução é literalmente a regra 3 que ele deveria estar auditando.
+Não existe `pen diff`. A base é um **worktree** (não um `git show` para `/tmp`:
+o `.pen` resolve `./assets/*` relativo à própria árvore, e o render sairia sem
+imagem nenhuma — silenciosamente). São quatro camadas:
 
-  O `screens.json` existe porque as três primeiras só olham `reusable`, e tela
-  não é reusable: sem ele o audit cobre componente e deixa página descoberta.
-  `scripts/pen-outline.py` o produz podando o conteúdo instanciado — títulos e
-  thumbnails são fixture, não design —, o que derruba as duas telas de ~2000
-  para ~460 linhas.
+| camada | pega |
+|---|---|
+| tokens (`{themes, variables}`) | cor, escala ou tema trocado; token adicionado/removido |
+| inventário de `reusable` | componente adicionado, removido, renomeado |
+| estrutura de cada `reusable` (sem `id`/`x`/`y`) | mudança **dentro** de um componente |
+| composição das telas que mudaram (`pen-outline.py`) | componente que entrou, saiu ou trocou de lugar numa tela |
 
-  Audita as nove falhas do §12 e posta inline. As regras não vão no prompt: o
-  `CLAUDE.md` faz `@design/DESIGN-SYSTEM.md`, então este arquivo chega inteiro.
+As três primeiras saem de `scripts/pen-digest.sh`, o único lugar onde esses
+filtros existem — diff e auditoria leem dele. A terceira existe porque as duas
+primeiras têm um ponto cego: trocar o padding do Chip de `$space-3` para
+`$space-4` não mexe em token nem em inventário.
+
+A quarta depende do render. `scripts/pen-screens.sh` é a definição de **tela**:
+frame de topo que não é `reusable` nem peça do board (`Sheet /`, `Label /`,
+`Foundations`). A lista sai do próprio `.pen`, de cada lado, nunca de uma
+constante — uma lista fixa deixa tela nova fora do relatório, em silêncio.
+Cada tela sai como adicionada, removida ou mudou (bytes do PNG diferentes; o
+render é determinístico). Identidade é o nome: renomear é removida +
+adicionada. Só as que mudaram ganham diff de composição — a árvore instanciada
+de todas daria milhares de linhas — e só os PNGs delas vão para o artefato.
+Render diferente com composição igual quer dizer que a causa está num
+componente ou token, nas três primeiras camadas.
+
+`scripts/pen-export.sh` renderiza nós nomeados, headless; sem `PEN_NODES`,
+todas as telas. Ele checa a versão do CLI e falha se algum nome pedido não
+resolver. O `Export` grava `<id>.png`, não o nome — quem precisa do nome
+renomeia.
+
+### Auditoria
+
+O agente recebe evidência em que cada arquivo é autoridade sobre uma coisa:
+
+| arquivo | autoridade sobre |
+|---|---|
+| `components.html` | geometria e tipografia **resolvidas em px** (só tema claro) |
+| `components.json` | qual **token** o design usa em cada propriedade |
+| `tokens.json` | o que cada token vale em **light e dark** |
+| `screens.json` | **composição** das telas: quais componentes, em que ordem |
+| `numeric.md` | a app rodando, **medida** contra o design |
+| `scan.md` | ocorrências mecânicas das regras 1 a 8 |
+
+O HTML existe para o agente não ter que resolver `$radius-sm` → 8px sozinho —
+errar essa resolução é literalmente a regra 3 que ele deveria estar auditando.
+
+O `screens.json` existe porque os JSONs só olham `reusable`, e tela não é
+reusable: sem ele a auditoria cobre componente e deixa página descoberta.
+`scripts/pen-outline.py` o produz podando o conteúdo instanciado — títulos e
+thumbnails são fixture, não design —, o que derruba as duas telas de canal de
+~1700 para ~460 linhas. Tela montada à mão poda menos, então o agente pega uma
+tela por vez com `jq`, nunca o arquivo inteiro.
+
+- **Medição** — `scripts/measure-app.sh` sobe a app e `compare-styles.mjs`
+  compara o `getComputedStyle` de cada `[data-component]` com o export do
+  design, em cada página de `design/screen-routes.json` (§10). Divergência vira
+  achado da regra 10; não conseguir medir (CDN, página que não responde, mapa
+  desatualizado) é falha.
+- **Varredura** — `scripts/drift-scan.sh`, regex das regras 1 a 8 sobre os
+  arquivos do diff. Ocorrência, não achado: `rounded-lg` pode estar certo.
+- **Agente** — `claude-code-action` verifica as ocorrências, transforma
+  medição em achado, confere as regras 7 e 9 e, se o design mudou, procura o
+  código que ficou para trás mesmo fora do diff. As regras não vão no prompt:
+  o `CLAUDE.md` faz `@design/DESIGN-SYSTEM.md`, então este arquivo chega
+  inteiro, e os números são os do §12. Ele **não posta**: escreve `human.md` (o
+  que mudou no design, em px — nunca o que mudar no código) e `findings.json`
+  (achados verificados, com arquivo, linha e regra).
+
+### Publicação — `scripts/publish.mjs`
+
+- Um comentário-resumo, **editado no lugar** a cada push.
+- Achado em linha do diff vira comentário inline, numa review. Achado fora do
+  diff — código que não mudou e ficou para trás — vai numa lista no resumo: a
+  API recusa inline fora do diff.
+- Inline só para achado **novo**. A chave é arquivo + regra + texto da linha:
+  sobrevive a linha inserida acima e ao agente escrever o mesmo achado com
+  outras palavras. Achado corrigido fica *outdated* sozinho.
+- Resumo e achados são reconhecidos por marcador oculto no texto, não pelo
+  autor: o autor depende do token, e comentário *outdated* perde o número da
+  linha.
+
+O check fica **vermelho** se houver achado, se o agente falhar ou se algum
+passo quebrar — e o resultado mecânico é publicado em todos os casos. "Não
+auditou" nunca pode parecer "passou", e o §1 já decidiu que a transcrição é
+parte da tarefa: PR que muda o design sem acompanhar o código está incompleto.
 
 Secrets: `PEN_CLI_KEY` e `ANTHROPIC_API_KEY`.
+
+### Rodar local
+
+```bash
+git worktree add --detach ../base origin/main
+scripts/design-diff.sh ../base/design/pendev/youtube-channel.pen \
+  design/pendev/youtube-channel.pen /tmp/check/design
+scripts/drift-scan.sh origin/main
+APP_ORIGIN=http://localhost:3000 SKIP_BUILD=1 \
+  scripts/measure-app.sh /tmp/check/audit/components.html /tmp/check/audit/screens.tsv
+```
+
+A evidência de `measure-app.sh` sai como no passo "Evidência" do workflow. Não
+a gere dentro do repositório: o Tailwind varre o projeto atrás de classes, acha
+as do export e quebra o build.
 
 ### A armadilha do `html-tailwind`
 
@@ -378,8 +485,8 @@ Secrets: `PEN_CLI_KEY` e `ANTHROPIC_API_KEY`.
 ```
 
 **Serve para conferir números, nunca para copiar código** — colar dali viola as
-regras 1, 2 e 9 de uma vez. É por isso que o CI o entrega ao auditor junto com
-os dois JSONs, e não sozinho: o HTML diz *quanto é*, o JSON diz *qual token*.
+regras 1 e 10 do §12 de uma vez. É por isso que o CI o entrega ao agente junto
+com os JSONs, e não sozinho: o HTML diz *quanto é*, o JSON diz *qual token*.
 
 ### O que o CLI não faz em CI
 

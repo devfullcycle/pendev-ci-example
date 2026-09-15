@@ -1,0 +1,10 @@
+{
+  "Channel — Home": {
+    "page": "app/[handle]/page.tsx",
+    "url": "/@FullCycle"
+  },
+  "Channel — Videos": {
+    "page": "app/[handle]/videos/page.tsx",
+    "url": "/@FullCycle/videos"
+  }
+}

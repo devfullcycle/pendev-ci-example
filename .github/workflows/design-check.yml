@@ -1,0 +1,260 @@
+name: Design check
+
+# Duas perguntas que antes eram dois workflows: o que mudou no design, e se o
+# código acompanha o design. Um job, um agente, um comentário. O porquê de
+# cada decisão está no §14 do DESIGN-SYSTEM.md; a lógica, em scripts/ — este
+# arquivo só encadeia.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "design/pendev/**"
+      - "design/DESIGN-SYSTEM.md"
+      - "design/screen-routes.json"
+      - "app/**"
+      - "components/**"
+      - "scripts/**"
+      - ".github/workflows/design-check.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: design-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PEN_FILE: design/pendev/youtube-channel.pen
+  WORK: /tmp/check
+  BASE_REF: ${{ github.base_ref }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # O que roda depende do que o PR mudou, de ser rascunho e de ser fork
+      # (fork não recebe secret nem token de escrita). Ver scripts/check-gate.sh.
+      - name: Decidir o que roda
+        id: gate
+        env:
+          DRAFT: ${{ github.event.pull_request.draft }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: ./scripts/check-gate.sh "origin/$BASE_REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # >= 0.3.5 obrigatório: em 0.3.2 um .pen com fills de imagem relativos
+      # carrega VAZIO sem erro fatal. scripts/pen-export.sh checa e falha.
+      - name: Instalar pen.dev CLI
+        if: steps.gate.outputs.pen == 'true'
+        run: npm install -g @pen.dev/cli && pen version
+
+      # O .pen referencia ./assets/* relativamente, então a versão da base
+      # precisa da árvore inteira — um worktree, não um `git show` solto.
+      - name: Worktree da base
+        if: steps.gate.outputs.design == 'true'
+        run: git worktree add --detach ../base "origin/$BASE_REF"
+
+      - name: Diff do design
+        id: design
+        if: steps.gate.outputs.design == 'true'
+        env:
+          PEN_CLI_KEY: ${{ secrets.PEN_CLI_KEY }}
+          RENDER: ${{ steps.gate.outputs.render }}
+        run: ./scripts/design-diff.sh "../base/$PEN_FILE" "$PEN_FILE" "$WORK/design"
+
+      # A evidência do agente, cada arquivo autoridade sobre uma coisa (§14).
+      # Os digests do head já saíram do passo anterior quando ele rodou.
+      - name: Evidência do design para a auditoria
+        id: evidence
+        if: ${{ !cancelled() && steps.gate.outputs.deep == 'true' }}
+        env:
+          PEN_CLI_KEY: ${{ secrets.PEN_CLI_KEY }}
+        run: |
+          mkdir -p "$WORK/audit"
+          if [ -f "$WORK/design/head/tokens.json" ]; then
+            cp "$WORK"/design/head/{tokens.json,components.json,inventory.txt,screens.tsv} "$WORK/audit/"
+          else
+            ./scripts/pen-digest.sh "$PEN_FILE" "$WORK/audit"
+            ./scripts/pen-screens.sh "$PEN_FILE" > "$WORK/audit/screens.tsv"
+          fi
+          PEN_NODES="$(paste -sd';' "$WORK/audit/inventory.txt")" \
+            ./scripts/pen-export.sh "$PEN_FILE" "$WORK/audit/components.html" 1 html-tailwind
+          ./scripts/pen-outline.py "$PEN_FILE" > "$WORK/audit/screens.json"
+          ls -la "$WORK/audit"
+
+      # Divergência é achado, não falha: o passo só falha se não conseguiu medir.
+      - name: Medir a app nas páginas do mapa
+        id: numeric
+        if: ${{ !cancelled() && steps.evidence.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          code=0
+          ./scripts/measure-app.sh "$WORK/audit/components.html" "$WORK/audit/screens.tsv" > "$WORK/numeric.md" || code=$?
+          cat "$WORK/numeric.md"
+          exit $code
+
+      - name: Varredura mecânica
+        id: scan
+        if: ${{ !cancelled() && steps.gate.outputs.scan == 'true' }}
+        run: |
+          inventory="$WORK/audit/inventory.txt"
+          [ -f "$inventory" ] || inventory="$WORK/design/head/inventory.txt"
+          [ -f "$inventory" ] || inventory=""
+          INVENTORY="$inventory" ./scripts/drift-scan.sh "origin/$BASE_REF" > "$WORK/scan.md"
+          cat "$WORK/scan.md"
+
+      # O agente NÃO posta: escreve human.md e findings.json, e o passo
+      # "Publicar" publica. Assim a publicação é determinística, deduplica entre
+      # pushes, e o resultado mecânico sai mesmo se o agente falhar.
+      - uses: anthropics/claude-code-action@v1
+        id: agent
+        if: ${{ !cancelled() && steps.gate.outputs.deep == 'true' }}
+        continue-on-error: true
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Audite este PR contra o design e descreva a mudança de design. NÃO
+            poste nada e não use ferramenta de comentário: escreva os dois
+            arquivos abaixo, e o workflow publica.
+
+            As regras estão em design/DESIGN-SYSTEM.md, já carregado via
+            CLAUDE.md. As dez regras auditadas estão numeradas no §12: use
+            exatamente esses números.
+
+            ## Saída
+
+            1. /tmp/check/findings.json — SEMPRE, mesmo que vazio ([]):
+
+               [{"path": "components/chip.tsx", "line": 9, "rule": 10,
+                 "title": "padding lateral 16px no design, 12px no código",
+                 "body": "O Chip usa $space-4 no .pen. Troque `px-3` por `px-4` (§4)."}]
+
+               - path: relativo à raiz do repositório. line: a linha do arquivo
+                 ATUAL onde a correção acontece — no código, nunca no .pen.
+               - rule: o número da regra do §12. title: uma linha. body: a
+                 correção, citando a seção do doc.
+               - Arquivo que não mudou neste PR também vale: o workflow decide se
+                 o achado vira comentário inline ou item do resumo. Não procure
+                 uma linha do diff para encaixar o achado.
+               - Achado é só o que você verificou. Ocorrência do scan que é uso
+                 correto não entra.
+
+            2. /tmp/check/human.md — SÓ se /tmp/check/design/summary.md existir.
+               No máximo 12 linhas, em português, dizendo o que mudou NO DESIGN,
+               em pixels: "o padding lateral do Chip vai de 12px para 16px", não
+               "$space-3 -> $space-4". Tela adicionada ou removida, e a rota que
+               isso cria ou apaga (design/screen-routes.json); composição que
+               mudou. NÃO diga o que mudar no código — isso é achado, e só existe
+               se o código de fato não acompanha. Se o design não mudou de
+               verdade, uma linha dizendo isso.
+
+            ## Ordem — ela existe para você não gastar turnos
+
+            1. /tmp/check/scan.md primeiro. Cada ocorrência é candidata: abra só
+               aquele arquivo e decida se é violação ou uso correto. Seção que
+               não aparece passou: não reinvestigue.
+            2. /tmp/check/numeric.md. Divergência ali é medida, não inferida:
+               cada uma vira achado da regra 10, na linha que produz o valor.
+            3. Se /tmp/check/design/summary.md existe, o design mudou e o código
+               correspondente está defasado até prova em contrário (§13). Para
+               cada token, componente ou composição que mudou, confira o arquivo
+               correspondente, mesmo que ele não esteja no diff.
+            4. Regras 7 e 9, que exigem comparar com o design.
+            5. human.md, se couber.
+
+            PARE CEDO: sem ocorrência no scan, sem divergência no numeric e sem
+            design/summary.md, confira só a regra 9 nas páginas do diff e termine.
+
+            ## Evidência, em /tmp/check — cada uma autoridade sobre uma coisa
+
+            - design/summary.md, design/screens.md: o que mudou no design
+              (tokens, componentes, composição; telas por render).
+            - audit/components.html: geometria e tipografia já em px, por
+              data-pencil-name. NUNCA use Read nele (~108KB): grep -A3
+              'data-pencil-name="Chip"'. Só tema claro. Não copie código dali.
+            - audit/components.json: qual token cada propriedade usa.
+            - audit/tokens.json: o valor de cada token em light e dark.
+            - audit/screens.json: a composição de cada tela. NUNCA use Read nele
+              (passa de 2000 linhas e trunca): jq '.[] | select(.node == "Sign In")'
+              /tmp/check/audit/screens.json. Liste com jq -r '.[].node'.
+            - design/screen-routes.json, no repositório: tela -> page.tsx -> URL.
+
+            ## Escopo
+
+            git diff --name-only origin/${{ github.base_ref }}...HEAD
+
+            - Mudou código (app/, components/): audite os arquivos alterados.
+            - Mudou o design: compare com o código correspondente, mesmo fora do diff.
+            - Os dois: faça as duas coisas.
+
+            Não reporte estilo, nomes ou arquitetura fora das dez regras.
+          claude_args: |
+            --max-turns 60
+            --allowedTools "Read,Grep,Glob,Write,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(jq:*),Bash(grep:*),Bash(diff:*),Bash(comm:*),Bash(sed:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(ls:*)"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.gate.outputs.publish == 'true' }}
+        with:
+          name: design-check-${{ github.event.pull_request.number }}
+          path: |
+            ${{ env.WORK }}/design/artifact
+            ${{ env.WORK }}/*.md
+            ${{ env.WORK }}/findings.json
+          if-no-files-found: warn
+
+      # PR de fork: o token é só leitura, então o relatório vai para o job
+      # summary em vez de comentário.
+      - name: Publicar
+        id: publish
+        if: ${{ !cancelled() && steps.gate.outputs.publish == 'true' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHECK_MODE: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'summary' || 'pr' }}
+          CHECK_DRAFT: ${{ github.event.pull_request.draft }}
+          AGENT_OUTCOME: ${{ steps.agent.outcome }}
+        run: node scripts/publish.mjs "$WORK"
+
+      # Vermelho se houver achado, se a auditoria não terminou ou se algum passo
+      # quebrou. "Não auditou" nunca pode parecer "passou" (§14).
+      - name: Veredito
+        if: ${{ !cancelled() }}
+        env:
+          OUTCOMES: >-
+            design=${{ steps.design.outcome }}
+            evidence=${{ steps.evidence.outcome }}
+            numeric=${{ steps.numeric.outcome }}
+            scan=${{ steps.scan.outcome }}
+            agent=${{ steps.agent.outcome }}
+            publish=${{ steps.publish.outcome }}
+          PUBLISHED: ${{ steps.gate.outputs.publish }}
+        run: |
+          fail=0
+          for kv in $OUTCOMES; do
+            if [ "${kv#*=}" = failure ]; then echo "::error::o passo '${kv%%=*}' falhou"; fail=1; fi
+          done
+          if [ "$PUBLISHED" = true ]; then
+            if [ ! -f "$WORK/verdict.json" ]; then
+              echo "::error::a publicação não gravou verdict.json"; fail=1
+            else
+              cat "$WORK/verdict.json"
+              if [ "$(jq .findings "$WORK/verdict.json")" -gt 0 ]; then
+                echo "::error::$(jq .findings "$WORK/verdict.json") achado(s) — veja o comentário do PR"; fail=1
+              fi
+              if [ "$(jq .invalid "$WORK/verdict.json")" -gt 0 ]; then echo "::error::achados malformados do agente"; fail=1; fi
+              if [ "$(jq .agentMissing "$WORK/verdict.json")" = true ]; then echo "::error::o agente não gravou findings.json"; fail=1; fi
+              if [ "$(jq .postErrors "$WORK/verdict.json")" -gt 0 ]; then echo "::error::a API recusou comentários inline"; fail=1; fi
+            fi
+          fi
+          exit $fail
