@@ -3571,7 +3571,7 @@
                       "name": "Video Grid",
                       "width": "fill_container",
                       "layout": "vertical",
-                      "gap": "$space-8",
+                      "gap": "$space-6",
                       "padding": [
                         "$space-6",
                         0,
@@ -5244,7 +5244,7 @@
       "type": "color",
       "value": [
         {
-          "value": "$alpha-black-05",
+          "value": "$alpha-black-10",
           "theme": {
             "mode": "light"
           }
@@ -5261,7 +5261,7 @@
       "type": "color",
       "value": [
         {
-          "value": "$alpha-black-10",
+          "value": "$alpha-black-20",
           "theme": {
             "mode": "light"
           }
