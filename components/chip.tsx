@@ -1,3 +1,4 @@
+// teste: linha nova para deslocar as de baixo; as violações continuam lá
 // Chip — $radius-sm é 8px, logo rounded-lg e NÃO rounded-sm (§6).
 export function Chip({ label, active = false }: { label: string; active?: boolean }) {
   return (
