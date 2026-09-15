@@ -148,7 +148,9 @@ function diffLines(files) {
 const indent = (s) => s.split("\n").map((l) => (l ? `  ${l}` : l)).join("\n");
 
 function report({ findings, placement, sha, baseRef }) {
-  const human = read("human.md");
+  // O título da seção é daqui. Se o agente abrir o human.md com um título
+  // próprio, ele sai — senão a seção aparece com dois títulos.
+  const human = read("human.md")?.replace(/^#{1,6} [^\n]*\n+/, "") || null;
   const screens = read("design/screens.md");
   const summary = read("design/summary.md");
   const numeric = read("numeric.md");

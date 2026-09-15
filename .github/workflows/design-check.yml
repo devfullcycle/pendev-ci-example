@@ -157,7 +157,8 @@ jobs:
                  correto não entra.
 
             2. /tmp/check/human.md — SÓ se /tmp/check/design/summary.md existir.
-               No máximo 12 linhas, em português, dizendo o que mudou NO DESIGN,
+               Sem título (o workflow já põe um). No máximo 12 linhas, em
+               português, dizendo o que mudou NO DESIGN,
                em pixels: "o padding lateral do Chip vai de 12px para 16px", não
                "$space-3 -> $space-4". Tela adicionada ou removida, e a rota que
                isso cria ou apaga (design/screen-routes.json); composição que
