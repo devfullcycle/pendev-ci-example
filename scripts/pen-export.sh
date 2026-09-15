@@ -4,7 +4,10 @@
 # uso: scripts/pen-export.sh <arquivo.pen> <saida> [escala] [formato]
 #      PEN_NODES="Nó A;Nó B" scripts/pen-export.sh design.pen ./out 1 png
 #
-# formato png|jpeg|webp|pdf  -> <saida> é um DIRETÓRIO, um arquivo por nó
+# Sem PEN_NODES, exporta todas as telas do arquivo (scripts/pen-screens.sh).
+#
+# formato png|jpeg|webp|pdf  -> <saida> é um DIRETÓRIO, um arquivo por nó,
+#                               nomeado pelo ID do nó (<id>.png), não pelo nome
 # formato html-tailwind|html-css -> <saida> é um ARQUIVO, todos os nós nele
 #
 # Requer pen.dev CLI >= 0.3.5. Em 0.3.2 um .pen com fills de imagem relativos
@@ -16,7 +19,11 @@ PEN_FILE=$(realpath "${1:?arquivo .pen}")
 OUT_DIR=$(realpath -m "${2:?diretório de saída}")
 SCALE="${3:-1}"
 FORMAT="${4:-png}"
-NODES="${PEN_NODES:-Channel — Videos;Channel — Home}"
+NODES="${PEN_NODES:-$("$(dirname "$0")/pen-screens.sh" "$PEN_FILE" | cut -f2 | paste -sd';')}"
+if [ -z "$NODES" ]; then
+  echo "nenhum nó para exportar em $PEN_FILE" >&2
+  exit 1
+fi
 
 have=$(pen version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
 need=0.3.5

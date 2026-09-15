@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Extrai o esqueleto de composição das telas de um .pen.
 
-    scripts/pen-outline.py <arquivo.pen> [prefixo-do-nome]
+    scripts/pen-outline.py <arquivo.pen> [nome da tela ...]
+
+Sem nomes, todas as telas. O que é tela quem decide é scripts/pen-screens.sh —
+nome pedido que não for tela é erro, não saída vazia.
 
 As telas não são `reusable`, então ficam fora do digest de componentes. Mas o
 que interessa numa tela é a COMPOSIÇÃO — quais componentes, em que ordem, dentro
@@ -12,18 +15,32 @@ de que container — e não o conteúdo instanciado. Este script poda o conteúd
   - fill de imagem vira "<image>" pelo mesmo motivo
   - id/x/y não entram: coordenada de artboard não se traduz em layout fluido
 
-Resultado: ~460 linhas para as duas telas, contra ~2000 da árvore crua.
+Resultado: ~460 linhas para as duas telas de canal, contra ~1700 da árvore
+crua. Tela montada à mão, sem componente, poda menos: o Privacy Policy dá ~1500.
 """
-import json, sys
+import json, subprocess, sys
+from pathlib import Path
 
 LAYOUT_KEYS = ["layout", "gap", "padding", "alignItems", "justifyContent",
                "width", "height", "cornerRadius", "fill", "stroke",
                "strokeWidth", "clip"]
 
 
+def list_screens(path: str) -> dict[str, str]:
+    """nome -> id, na ordem do documento."""
+    out = subprocess.run([str(Path(__file__).with_name("pen-screens.sh")), path],
+                         check=True, capture_output=True, text=True).stdout
+    return {name: id for id, name in (line.split("\t", 1) for line in out.splitlines() if line)}
+
+
 def main() -> int:
     path = sys.argv[1] if len(sys.argv) > 1 else "design/pendev/youtube-channel.pen"
-    prefix = sys.argv[2] if len(sys.argv) > 2 else "Channel — "
+    screens = list_screens(path)
+    wanted = sys.argv[2:] or list(screens)
+    missing = [name for name in wanted if name not in screens]
+    if missing:
+        print(f"não são telas em {path}: {missing}", file=sys.stderr)
+        return 1
     doc = json.load(open(path, encoding="utf8"))
 
     by_id: dict[str, dict] = {}
@@ -62,14 +79,13 @@ def main() -> int:
             out["children"] = kids
         return out
 
-    screens = [prune(n) for n in doc["children"]
-               if isinstance(n.get("name"), str) and n["name"].startswith(prefix)]
-
-    if not screens:
-        print(f"nenhuma tela com prefixo {prefix!r} em {path}", file=sys.stderr)
+    if not wanted:
+        print(f"nenhuma tela em {path}", file=sys.stderr)
         return 1
 
-    print(json.dumps(screens, indent=2, ensure_ascii=False))
+    ids = {screens[name] for name in wanted}
+    outline = [prune(n) for n in doc["children"] if n.get("id") in ids]
+    print(json.dumps(outline, indent=2, ensure_ascii=False))
     return 0
 
 
