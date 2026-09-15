@@ -2022,7 +2022,7 @@
       "cornerRadius": "$radius-sm",
       "padding": [
         0,
-        "$space-4"
+        "$space-3"
       ],
       "justifyContent": "center",
       "alignItems": "center",
@@ -3518,7 +3518,7 @@
                       "id": "f134",
                       "name": "Filter Chips",
                       "width": "fill_container",
-                      "gap": "$space-3",
+                      "gap": "$space-2",
                       "padding": [
                         "$space-4",
                         0,
