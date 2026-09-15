@@ -20,7 +20,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write
 
 concurrency:
   group: design-check-${{ github.event.pull_request.number }}
@@ -117,12 +116,19 @@ jobs:
       # O agente NÃO posta: escreve human.md e findings.json, e o passo
       # "Publicar" publica. Assim a publicação é determinística, deduplica entre
       # pushes, e o resultado mecânico sai mesmo se o agente falhar.
+      #
+      # github_token é obrigatório aqui. Sem ele a action troca OIDC pelo token
+      # do app do Claude, e essa troca exige o workflow idêntico ao do branch
+      # padrão: em PR que mexe neste arquivo, a action sai em 2s com "success"
+      # sem rodar nada. Como o agente não posta, o token do job basta — e ele já
+      # está disponível para qualquer workflow de PR do próprio repositório.
       - uses: anthropics/claude-code-action@v1
         id: agent
         if: ${{ !cancelled() && steps.gate.outputs.deep == 'true' }}
         continue-on-error: true
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
           prompt: |
             Audite este PR contra o design e descreva a mudança de design. NÃO
             poste nada e não use ferramenta de comentário: escreva os dois

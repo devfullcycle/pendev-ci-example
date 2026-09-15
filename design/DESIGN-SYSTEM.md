@@ -436,7 +436,10 @@ tela por vez com `jq`, nunca o arquivo inteiro.
   o `CLAUDE.md` faz `@design/DESIGN-SYSTEM.md`, então este arquivo chega
   inteiro, e os números são os do §12. Ele **não posta**: escreve `human.md` (o
   que mudou no design, em px — nunca o que mudar no código) e `findings.json`
-  (achados verificados, com arquivo, linha e regra).
+  (achados verificados, com arquivo, linha e regra). Por não postar, roda com o
+  `github_token` do job: sem ele, a action troca OIDC pelo token do app do
+  Claude, troca que exige o workflow idêntico ao do branch padrão — e em PR que
+  mexe no workflow ela sai com "success" sem rodar nada.
 
 ### Publicação — `scripts/publish.mjs`
 
