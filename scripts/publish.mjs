@@ -171,7 +171,7 @@ function report({ findings, placement, sha, baseRef }) {
       status.push("**Nenhum achado** nas regras do §12.");
     } else {
       const { inline, known, outside } = placement;
-      status.push(`**${findings.valid.length} achado(s)**: ${inline.length} novo(s) em linha do diff, ${known.length} já comentado(s) antes, ${outside.length} fora do diff (abaixo).`);
+      status.push(`**${findings.valid.length} achado(s)**: ${inline.length} novo(s) em linha do diff, ${known.length} já comentado(s) antes, ${outside.length} fora do diff${outside.length ? " (abaixo)" : ""}.`);
     }
     if (findings.invalid.length) status.push(`${findings.invalid.length} achado(s) do agente vieram malformados e não foram publicados (abaixo).`);
     if (numericError) status.push("A medição da app não rodou até o fim (detalhe abaixo).");
